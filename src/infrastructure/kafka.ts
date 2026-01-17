@@ -1,5 +1,5 @@
 import { Kafka, Producer, Admin } from 'kafkajs';
-import { CashbackGrantedSchema } from './avro-schemas';
+import { CashbackGrantedSchema, RedeemBalanceSchema } from './avro-schemas';
 
 export const initKafka = (clientId: string, brokers: string[]) => {
   const kafka = new Kafka({ clientId, brokers });
@@ -30,6 +30,15 @@ export const ensureTopics = async (admin: Admin, topics: string[]) => {
 export const produceCashbackEvent = (producer: Producer) => 
   async (topic: string, payload: any): Promise<void> => {
     const buffer = CashbackGrantedSchema.toBuffer(payload);
+    await producer.send({
+      topic,
+      messages: [{ value: buffer }]
+    });
+  };
+
+export const produceRedeemBalanceEvent = (producer: Producer) => 
+  async (topic: string, payload: any): Promise<void> => {
+    const buffer = RedeemBalanceSchema.toBuffer(payload);
     await producer.send({
       topic,
       messages: [{ value: buffer }]

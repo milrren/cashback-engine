@@ -1,6 +1,6 @@
 import { Repositories, updateWalletBalance } from '../infrastructure/mongodb';
-import { produceCashbackEvent } from '../infrastructure/kafka';
-import { calculateCashback, isPurchaseConfirmed } from '../domain/logic';
+import { produceCashbackEvent, produceRedeemBalanceEvent } from '../infrastructure/kafka';
+import { calculateCashback, isPurchaseConfirmed, isRedemptionConfirmed, validateRedemption } from '../domain/logic';
 import { Result, success, failure } from '../domain/types';
 import { Producer } from 'kafkajs';
 import { v4 as uuidv4 } from 'uuid';
@@ -13,7 +13,15 @@ interface ProcessPurchaseInput {
   readonly transaction_id: string;
 }
 
-export const processCashback = (repos: Repositories, producer: Producer) => 
+interface ProcessRedemptionInput {
+  readonly trace_id: string;
+  readonly user_id: string;
+  readonly amount: number;
+  readonly status: string;
+  readonly transaction_id: string;
+}
+
+export const processCashback = (repos: Repositories, producer: Producer) =>
   async (input: ProcessPurchaseInput): Promise<Result<string, string>> => {
     try {
       const confirmation = isPurchaseConfirmed(input.status);
@@ -60,5 +68,56 @@ export const processCashback = (repos: Repositories, producer: Producer) =>
       return success('Cashback processed successfully');
     } catch (error) {
       return failure(error instanceof Error ? error.message : 'Unknown processing error');
+    }
+  };
+
+export const redeemBalance = (repos: Repositories, producer: Producer) =>
+  async (input: ProcessRedemptionInput): Promise<Result<string, string>> => {
+    try {
+      const confirmation = isRedemptionConfirmed(input.status);
+      if (confirmation.tag === 'failure') return confirmation;
+
+      const wallet = await repos.wallets.findOne({ user_id: input.user_id });
+      const balance = wallet?.balance || 0;
+
+      const balanceValidation = validateRedemption(balance, input.amount);
+      if (balanceValidation.tag === 'failure') return balanceValidation;
+
+      // Atomic Update
+      await updateWalletBalance(repos.wallets)(input.user_id, -input.amount);
+
+      await repos.transactions.insertOne({
+        transaction_id: input.transaction_id,
+        user_id: input.user_id,
+        amount: input.amount,
+        type: 'DEBIT',
+        timestamp: new Date()
+      });
+
+      const eventPayload = {
+        trace_id: input.trace_id,
+        user_id: input.user_id,
+        amount_debited: input.amount,
+        transaction_id: input.transaction_id,
+        timestamp: Date.now(),
+        origin_service: 'cashback-engine'
+      };
+
+      try {
+        await produceRedeemBalanceEvent(producer)('redeem.events.granted', eventPayload);
+      } catch (err) {
+        // Resilience Mechanism: Persist to Failover
+        await repos.failover.insertOne({
+          original_event: eventPayload,
+          error_message: err instanceof Error ? err.message : 'Unknown Kafka Error',
+          stack_trace: err instanceof Error ? (err.stack || '') : '',
+          retry_count: 0,
+          status: 'PENDING'
+        });
+      }
+
+      return success('Redeem processed successfully');
+    } catch (error) {
+      return failure(error instanceof Error ? error.message : 'Unknown redeem error');
     }
   };

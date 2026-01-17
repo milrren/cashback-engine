@@ -15,3 +15,15 @@ export const isPurchaseConfirmed = (status: string): Result<boolean, string> => 
     ? success(true) 
     : failure('Event status is not confirmed');
 };
+
+export const isRedemptionConfirmed = (status: string): Result<boolean, string> => {
+  return status.toUpperCase() === 'CONFIRMED' 
+    ? success(true) 
+    : failure('Event status is not confirmed');
+};
+
+export const validateRedemption = (currentBalance: number, redemptionAmount: number): Result<boolean, string> => {
+  return currentBalance - redemptionAmount >= 0
+    ? success(true)
+    : failure('Insufficient balance for redemption');
+}

@@ -3,7 +3,7 @@ import express from 'express';
 import { initMongo } from './infrastructure/mongodb';
 import { initKafka, ensureTopics } from './infrastructure/kafka';
 import { processCashback } from './application/use-cases';
-import { getWallet, getMonthlyReport } from './interface/routes';
+import { getWallet, getMonthlyReport, postRedeem } from './interface/routes';
 
 dotenv.config();
 
@@ -47,6 +47,7 @@ const start = async () => {
 
   app.get('/v1/wallets/:userId', getWallet(repos));
   app.get('/v1/reports/monthly', getMonthlyReport(repos));
+  app.post('/v1/wallets/redeem', postRedeem(repos, producer));
 
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Cashback Engine running on port ${PORT}`));

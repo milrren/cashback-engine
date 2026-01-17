@@ -1,0 +1,2 @@
+- ajustar interface para execução de use case por Rota ou Evento
+- criar função dto para validação de contrato com zod
